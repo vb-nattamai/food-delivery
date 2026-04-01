@@ -1,8 +1,9 @@
 {
   "static": {
-    "project_name": "Food Delivery Platform",
-    "description": "A polyglot microservices platform for food delivery, built with 5 independent services (API Gateway, Order, Inventory, Driver, Notification) across Kotlin, Java, Python, Go, and TypeScript stacks, communicating via RabbitMQ events and fronted by a JWT-authenticated API Gateway.",
+    "_comment": "These fields are set once. Edit manually. Never overwritten by the transformer.",
+    "repo_name": "food-delivery",
     "primary_language": "Java",
+    "language_version": "unknown",
     "frameworks": [
       "Spring Boot",
       "Spring Cloud Gateway",
@@ -13,7 +14,7 @@
       "SendGrid"
     ],
     "entry_point": "order-service/src/main/java/com/fooddelivery/order/OrderServiceApplication.java",
-    "test_command": "cd order-service && mvn -B verify --no-transfer-progress",
+    "api_protocol": "REST",
     "restricted_write_paths": [
       ".env",
       ".env.example",
@@ -60,8 +61,11 @@
       "SPRING_DATASOURCE_USERNAME",
       "SPRING_DATASOURCE_PASSWORD"
     ],
+    "project_name": "Food Delivery Platform",
+    "description": "A polyglot microservices platform for food delivery, built with 5 independent services (API Gateway, Order, Inventory, Driver, Notification) across Kotlin, Java, Python, Go, and TypeScript stacks, communicating via RabbitMQ events and fronted by a JWT-authenticated API Gateway.",
+    "test_command": "cd order-service && mvn -B verify --no-transfer-progress",
     "domain_concepts": [
-      "OrderStatus: Enum representing the lifecycle states of an order: PENDING \u2192 ACCEPTED \u2192 PREPARING \u2192 READY_FOR_PICKUP \u2192 IN_TRANSIT \u2192 DELIVERED, with CANCELLED and REFUNDED as terminal/side states.",
+      "OrderStatus: Enum representing the lifecycle states of an order: PENDING → ACCEPTED → PREPARING → READY_FOR_PICKUP → IN_TRANSIT → DELIVERED, with CANCELLED and REFUNDED as terminal/side states.",
       "OrderItem: An embeddable JPA entity representing a line item within an order, containing menu item ID, name, quantity, and unit price.",
       "MenuItem: A SQLAlchemy model representing a restaurant menu item with stock_quantity (-1 means unlimited) and availability tracking.",
       "Driver: A MongoDB document representing a delivery driver with name, phone, vehicle type, availability status, and GPS location.",
@@ -75,138 +79,20 @@
     ]
   },
   "dynamic": {
-    "last_scanned": "2026-04-01T17:28:55.682787+00:00",
-    "secondary_languages": [
-      "Kotlin",
-      "Python",
-      "Go",
-      "TypeScript"
-    ],
-    "build_system": "maven",
-    "build_command": "docker-compose build",
-    "install_command": "cd order-service && mvn dependency:resolve && cd ../inventory-service && pip install -r requirements.txt && cd ../driver-service && go mod download && cd ../notification-service && npm install && cd ../api-gateway && ./gradlew dependencies",
-    "run_command": "docker-compose up --build",
-    "test_framework": "JUnit 5 (order-service), pytest (inventory-service), go test (driver-service), Jest (notification-service)",
-    "test_directory": "order-service/src/test",
-    "source_directories": [
-      "order-service/src/main/java",
-      "inventory-service",
-      "driver-service/cmd/driver",
-      "notification-service/src",
-      "api-gateway/src/main/kotlin"
-    ],
+    "_comment": "These fields are refreshed automatically on every scan.",
+    "last_scanned": "2026-04-01T17:38:09.201669+00:00",
     "module_layout": {
-      "api-gateway": "api-gateway",
-      "order-service": "order-service",
-      "inventory-service": "inventory-service",
-      "driver-service": "driver-service",
-      "notification-service": "notification-service"
+      "src/": "Source code",
+      "tests/": "Test code"
     },
-    "architecture_summary": "The platform follows a microservices architecture with an API Gateway (Kotlin/Spring Cloud Gateway) performing JWT authentication and routing to downstream services. The Order Service (Java/Spring Boot) manages order lifecycle with Stripe payments and publishes events to RabbitMQ, which the Notification Service (Node.js/TypeScript) consumes to send SMS/email via Twilio/SendGrid. The Inventory Service (Python/FastAPI) uses Redis distributed locks for stock reservation, and the Driver Service (Go) tracks driver profiles and locations in MongoDB.",
-    "key_components": [
-      {
-        "name": "GatewayApplication",
-        "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt",
-        "responsibility": "Spring Cloud Gateway entry point that routes all external requests to downstream microservices."
-      },
-      {
-        "name": "JwtAuthFilter",
-        "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt",
-        "responsibility": "Global gateway filter that validates JWT tokens and injects authenticated customer ID into downstream request headers."
-      },
-      {
-        "name": "OrderServiceApplication",
-        "path": "order-service/src/main/java/com/fooddelivery/order/OrderServiceApplication.java",
-        "responsibility": "Spring Boot entry point for the Order Service managing order lifecycle, payments, and event publishing."
-      },
-      {
-        "name": "OrderController",
-        "path": "order-service/src/main/java/com/fooddelivery/order/controller/OrderController.java",
-        "responsibility": "REST controller exposing endpoints for creating, listing, updating, and cancelling orders."
-      },
-      {
-        "name": "OrderService",
-        "path": "order-service/src/main/java/com/fooddelivery/order/service/OrderService.java",
-        "responsibility": "Core business logic for order creation with Stripe payment, status transitions with validation, and RabbitMQ event publishing."
-      },
-      {
-        "name": "Order",
-        "path": "order-service/src/main/java/com/fooddelivery/order/model/Order.java",
-        "responsibility": "JPA entity representing a customer order with line items, delivery address, payment intent, and lifecycle status."
-      },
-      {
-        "name": "OrderStatus",
-        "path": "order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java",
-        "responsibility": "Enum defining valid order lifecycle states and transition rules between them."
-      },
-      {
-        "name": "StripePaymentGateway",
-        "path": "order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java",
-        "responsibility": "Live Stripe SDK implementation for creating payment intents and processing refunds."
-      },
-      {
-        "name": "inventory-service/main.py",
-        "path": "inventory-service/main.py",
-        "responsibility": "FastAPI application handling restaurant/menu queries and stock reservation with Redis distributed locks."
-      },
-      {
-        "name": "models.py",
-        "path": "inventory-service/models.py",
-        "responsibility": "SQLAlchemy ORM models for Restaurant and MenuItem entities with stock management semantics."
-      },
-      {
-        "name": "driver-service main.go",
-        "path": "driver-service/cmd/driver/main.go",
-        "responsibility": "Go HTTP service managing driver profiles, availability, and GPS location tracking backed by MongoDB."
-      },
-      {
-        "name": "notification-service index.ts",
-        "path": "notification-service/src/index.ts",
-        "responsibility": "Node.js/TypeScript service consuming RabbitMQ order events and dispatching SMS (Twilio) and email (SendGrid) notifications with idempotency."
-      }
+    "domain_concepts": [],
+    "agent_capabilities": [
+      "code_analysis",
+      "testing",
+      "building"
     ],
-    "agent_safe_operations": [
-      "Add new REST endpoints to existing service controllers/handlers",
-      "Add new unit tests or integration tests to any service",
-      "Modify business logic in OrderService, inventory main.py, or driver handlers",
-      "Add new domain models or DTOs",
-      "Update application configuration in application.yml/application.properties",
-      "Add new Python dependencies to requirements.txt",
-      "Add new Go dependencies via go get",
-      "Add new npm dependencies to notification-service/package.json",
-      "Refactor internal service code without changing API contracts",
-      "Add or update logging statements",
-      "Add new notification channels in notification-service"
-    ],
-    "agent_forbidden_operations": [
-      "Modify .env or .env.example files containing secrets",
-      "Modify database migration files or auto-generated schema DDL",
-      "Change JWT secret or authentication bypass logic in JwtAuthFilter",
-      "Modify CI/CD workflow files without explicit approval",
-      "Alter docker-compose.yml infrastructure service configurations",
-      "Change the openapi.yaml contract without coordinating across services",
-      "Modify lock files (package-lock.json, go.sum) manually",
-      "Remove or weaken OrderStatus transition validation",
-      "Disable or bypass Redis distributed locking in inventory service",
-      "Commit real API keys or secrets to any file"
-    ],
-    "potential_pitfalls": [
-      "Each service uses a different language and build tool \u2014 running tests requires Java 21 + Maven, Python 3.11 + pip, Go 1.21, and Node.js 20 + npm all available",
-      "The inventory service uses async SQLAlchemy with asyncpg driver \u2014 the database_url must use postgresql+asyncpg:// scheme, not plain postgresql://",
-      "Order status transitions are strictly validated in OrderStatus.isValidTransition \u2014 invalid transitions throw IllegalStateException, not silently ignored",
-      "Redis distributed locks in inventory service have a 10-second TTL with 40 retries \u2014 long-running test scenarios may hit lock timeouts",
-      "The API Gateway's JwtAuthFilter runs at order -100, meaning it executes before routing \u2014 any new public paths must be added to PUBLIC_PATHS",
-      "The notification service uses an in-memory Set for idempotency \u2014 this is explicitly noted as needing Redis in production, so don't rely on it across restarts",
-      "The driver service uses MongoDB ObjectID (not UUID) for driver identifiers, unlike other services which use UUID \u2014 JSON field mapping differs (camelCase vs snake_case in BSON)",
-      "Docker Compose env vars like REDIS_HOST reference container names (e.g., 'redis', 'postgres') \u2014 running services locally requires overriding these to 'localhost'",
-      "The order-service uses Lombok annotations (@Getter, @Setter, @Builder) \u2014 builds will fail without Lombok annotation processor configured",
-      "The api-gateway uses Gradle (build.gradle.kts) while order-service uses Maven (pom.xml) \u2014 don't confuse build commands between these Java/Kotlin services"
-    ],
-    "conventions": {
-      "naming": "camelCase",
-      "structure": "monorepo"
-    },
-    "has_ci": true,
-    "has_openapi": true
+    "test_command": "unknown",
+    "build_command": "unknown",
+    "lint_command": ""
   }
 }
