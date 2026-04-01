@@ -44,6 +44,8 @@ jobs:
       target_branch: ${{ github.event.repository.default_branch }}
       issue_number: ${{ github.event.issue.number }}
       llm: true
+      eval: true
+      fail_level: '0.0'
       force: false
       only: ''
     secrets: inherit
