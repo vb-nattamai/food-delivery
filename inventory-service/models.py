@@ -60,7 +60,7 @@ class MenuItem(Base):
 
     @property
     def is_unlimited(self) -> bool:
-        return self.stock_quantity == -1
+        return int(self.stock_quantity) == -1
 
     def __repr__(self) -> str:
         stock = "unlimited" if self.is_unlimited else self.stock_quantity

@@ -1,10 +1,10 @@
 module github.com/fooddelivery/driver-service
 
-go 1.21
+go 1.22
 
-require (
-	go.mongodb.org/mongo-driver v1.15.0
-)
+toolchain go1.22.5
+
+require go.mongodb.org/mongo-driver v1.15.0
 
 require (
 	github.com/golang/snappy v0.0.4 // indirect

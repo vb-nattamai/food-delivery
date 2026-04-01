@@ -115,9 +115,12 @@ jobs:
         with:
           java-version: "21"
           distribution: "temurin"
-          cache: gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
       - name: Build & test
-        run: ./gradlew test --no-daemon
+        run: gradle test --no-daemon
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

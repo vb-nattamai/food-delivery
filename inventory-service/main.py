@@ -92,7 +92,8 @@ async def lifespan(app: FastAPI):
 
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     yield
-    await redis_client.aclose()
+    if redis_client is not None:
+        await redis_client.aclose()
     await engine.dispose()
 
 
