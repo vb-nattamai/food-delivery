@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,24 +41,144 @@ type GeoPoint struct {
 	Longitude float64 `bson:"lng" json:"longitude"`
 }
 
+// ─── DriverStore interface ────────────────────────────────────────────────────
+
+// DriverStore abstracts all MongoDB operations so handlers can be tested
+// without a real database connection.
+type DriverStore interface {
+	Find(ctx context.Context, onlyAvailable bool) ([]Driver, error)
+	FindOne(ctx context.Context, id primitive.ObjectID) (*Driver, error)
+	InsertOne(ctx context.Context, d Driver) (*Driver, error)
+	UpdateLocation(ctx context.Context, id primitive.ObjectID, loc GeoPoint) (*Driver, error)
+	UpdateAvailability(ctx context.Context, id primitive.ObjectID, available bool) (*Driver, error)
+}
+
+// ─── mongoDriverStore ─────────────────────────────────────────────────────────
+
+type mongoDriverStore struct {
+	coll *mongo.Collection
+}
+
+func (s *mongoDriverStore) Find(ctx context.Context, onlyAvailable bool) ([]Driver, error) {
+	filter := bson.M{}
+	if onlyAvailable {
+		filter["is_available"] = true
+	}
+	cur, err := s.coll.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var drivers []Driver
+	if err = cur.All(ctx, &drivers); err != nil {
+		return nil, err
+	}
+	return drivers, nil
+}
+
+func (s *mongoDriverStore) FindOne(ctx context.Context, id primitive.ObjectID) (*Driver, error) {
+	var d Driver
+	err := s.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&d)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	return &d, err
+}
+
+func (s *mongoDriverStore) InsertOne(ctx context.Context, d Driver) (*Driver, error) {
+	d.ID = primitive.NewObjectID()
+	d.CreatedAt = time.Now().UTC()
+	d.UpdatedAt = time.Now().UTC()
+	if _, err := s.coll.InsertOne(ctx, d); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (s *mongoDriverStore) UpdateLocation(ctx context.Context, id primitive.ObjectID, loc GeoPoint) (*Driver, error) {
+	now := time.Now().UTC()
+	after := options.After
+	result := s.coll.FindOneAndUpdate(
+		ctx,
+		bson.M{"_id": id},
+		bson.M{"$set": bson.M{"location": loc, "updated_at": now}},
+		&options.FindOneAndUpdateOptions{ReturnDocument: &after},
+	)
+	if result.Err() != nil {
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, result.Err()
+	}
+	var d Driver
+	if err := result.Decode(&d); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (s *mongoDriverStore) UpdateAvailability(ctx context.Context, id primitive.ObjectID, available bool) (*Driver, error) {
+	now := time.Now().UTC()
+	after := options.After
+	result := s.coll.FindOneAndUpdate(
+		ctx,
+		bson.M{"_id": id},
+		bson.M{"$set": bson.M{"is_available": available, "updated_at": now}},
+		&options.FindOneAndUpdateOptions{ReturnDocument: &after},
+	)
+	if result.Err() != nil {
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, result.Err()
+	}
+	var d Driver
+	if err := result.Decode(&d); err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 type handler struct {
-	drivers *mongo.Collection
-	log     *slog.Logger
+	store DriverStore
+	log   *slog.Logger
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
 	switch {
-	case r.Method == http.MethodGet && r.URL.Path == "/health":
+	case r.Method == http.MethodGet && path == "/health":
 		h.health(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/drivers":
+	case r.Method == http.MethodGet && path == "/drivers":
 		h.listDrivers(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/drivers":
+	case r.Method == http.MethodPost && path == "/drivers":
 		h.createDriver(w, r)
+	case r.Method == http.MethodGet && isDriverByID(path):
+		h.getDriver(w, r)
+	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/location"):
+		h.updateLocation(w, r)
+	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/availability"):
+		h.updateAvailability(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// isDriverByID returns true for paths of the form /drivers/{id} (exactly 2 segments).
+func isDriverByID(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) == 2 && parts[0] == "drivers" && parts[1] != ""
+}
+
+// extractDriverID parses the ObjectID from the second path segment (/drivers/{id}/...).
+func extractDriverID(path string) (primitive.ObjectID, error) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 2 || parts[1] == "" {
+		return primitive.ObjectID{}, errors.New("missing driver id")
+	}
+	return primitive.ObjectIDFromHex(parts[1])
 }
 
 func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -68,26 +190,12 @@ func (h *handler) listDrivers(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	onlyAvailable := r.URL.Query().Get("available") == "true"
-	filter := bson.M{}
-	if onlyAvailable {
-		filter["is_available"] = true
-	}
-
-	cur, err := h.drivers.Find(ctx, filter)
+	drivers, err := h.store.Find(ctx, onlyAvailable)
 	if err != nil {
-		h.log.Error("listDrivers find", "err", err)
+		h.log.Error("listDrivers", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	defer cur.Close(ctx)
-
-	var drivers []Driver
-	if err = cur.All(ctx, &drivers); err != nil {
-		h.log.Error("listDrivers decode", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, drivers)
 }
 
@@ -97,21 +205,102 @@ func (h *handler) createDriver(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
 
-	d.ID = primitive.NewObjectID()
-	d.CreatedAt = time.Now().UTC()
-	d.UpdatedAt = time.Now().UTC()
+	created, err := h.store.InsertOne(ctx, d)
+	if err != nil {
+		h.log.Error("createDriver", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *handler) getDriver(w http.ResponseWriter, r *http.Request) {
+	id, err := extractDriverID(r.URL.Path)
+	if err != nil {
+		http.Error(w, "invalid driver id", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	d, err := h.store.FindOne(ctx, id)
+	if err != nil {
+		h.log.Error("getDriver", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.Error(w, "driver not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+func (h *handler) updateLocation(w http.ResponseWriter, r *http.Request) {
+	id, err := extractDriverID(r.URL.Path)
+	if err != nil {
+		http.Error(w, "invalid driver id", http.StatusBadRequest)
+		return
+	}
+
+	var loc GeoPoint
+	if err := json.NewDecoder(r.Body).Decode(&loc); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if loc.Latitude < -90 || loc.Latitude > 90 || loc.Longitude < -180 || loc.Longitude > 180 {
+		http.Error(w, "latitude must be -90..90, longitude -180..180", http.StatusUnprocessableEntity)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	if _, err := h.drivers.InsertOne(ctx, d); err != nil {
-		h.log.Error("createDriver insert", "err", err)
+	d, err := h.store.UpdateLocation(ctx, id, loc)
+	if err != nil {
+		h.log.Error("updateLocation", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if d == nil {
+		http.Error(w, "driver not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
 
-	writeJSON(w, http.StatusCreated, d)
+func (h *handler) updateAvailability(w http.ResponseWriter, r *http.Request) {
+	id, err := extractDriverID(r.URL.Path)
+	if err != nil {
+		http.Error(w, "invalid driver id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		IsAvailable bool `json:"is_available"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	d, err := h.store.UpdateAvailability(ctx, id, req.IsAvailable)
+	if err != nil {
+		h.log.Error("updateAvailability", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.Error(w, "driver not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -123,7 +312,6 @@ func main() {
 	mongoDB := getenv("MONGO_DB", "driverservice")
 	addr := getenv("ADDR", ":8083")
 
-	// Connect to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -132,23 +320,19 @@ func main() {
 		log.Error("mongo connect", "err", err)
 		os.Exit(1)
 	}
-
 	if err = client.Ping(ctx, nil); err != nil {
 		log.Error("mongo ping", "err", err)
 		os.Exit(1)
 	}
 	log.Info("connected to MongoDB", "uri", mongoURI, "db", mongoDB)
 
-	// Create a 2dsphere index on location for geospatial queries
 	collection := client.Database(mongoDB).Collection("drivers")
-	indexModel := mongo.IndexModel{
-		Keys: bson.D{{Key: "location", Value: "2dsphere"}},
-	}
+	indexModel := mongo.IndexModel{Keys: bson.D{{Key: "location", Value: "2dsphere"}}}
 	if _, err = collection.Indexes().CreateOne(context.Background(), indexModel); err != nil {
 		log.Warn("could not create 2dsphere index (may already exist)", "err", err)
 	}
 
-	h := &handler{drivers: collection, log: log}
+	h := &handler{store: &mongoDriverStore{coll: collection}, log: log}
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      h,
@@ -157,7 +341,6 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
