@@ -1,0 +1,205 @@
+{
+  "static": {
+    "project_name": "Food Delivery Platform",
+    "description": "A polyglot microservices platform for food delivery, composed of 5 independent services (API Gateway, Order, Inventory, Driver, Notification) across Kotlin, Java, Python, Go, and TypeScript stacks, orchestrated via Docker Compose with RabbitMQ as the async event bus.",
+    "primary_language": "Java",
+    "frameworks": [
+      "Spring Boot",
+      "Spring Cloud Gateway",
+      "FastAPI",
+      "amqplib",
+      "SendGrid",
+      "Twilio"
+    ],
+    "entry_point": "order-service/src/main/java/com/fooddelivery/order/OrderServiceApplication.java",
+    "test_command": "cd order-service && mvn -B verify --no-transfer-progress",
+    "restricted_write_paths": [
+      ".env",
+      ".env.example",
+      "docker-compose.yml",
+      "driver-service/go.sum",
+      "notification-service/package-lock.json",
+      "openapi.yaml",
+      ".github/workflows/ci.yml",
+      ".github/workflows/agentic-ready.yml",
+      ".github/workflows/context-drift-detector.yml",
+      "order-service/src/test/resources/application-test.properties"
+    ],
+    "environment_variables": [
+      "POSTGRES_HOST",
+      "POSTGRES_PORT",
+      "POSTGRES_DB",
+      "POSTGRES_USER",
+      "POSTGRES_PASSWORD",
+      "MONGO_URI",
+      "MONGO_DB",
+      "RABBITMQ_HOST",
+      "RABBITMQ_PORT",
+      "RABBITMQ_USER",
+      "RABBITMQ_PASSWORD",
+      "RABBITMQ_VHOST",
+      "RABBITMQ_URL",
+      "REDIS_HOST",
+      "REDIS_PORT",
+      "REDIS_PASSWORD",
+      "JWT_SECRET",
+      "JWT_EXPIRY_SECONDS",
+      "STRIPE_API_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "GOOGLE_MAPS_API_KEY",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_FROM_NUMBER",
+      "SENDGRID_API_KEY",
+      "SENDGRID_FROM_EMAIL",
+      "SENDGRID_FROM_NAME",
+      "SPRING_DATASOURCE_URL",
+      "SPRING_DATASOURCE_USERNAME",
+      "SPRING_DATASOURCE_PASSWORD",
+      "DATABASE_URL",
+      "ORDER_SERVICE_URL",
+      "INVENTORY_SERVICE_URL",
+      "DRIVER_SERVICE_URL"
+    ],
+    "domain_concepts": [
+      "OrderStatus: Enum representing the lifecycle states of an order: PENDING \u2192 ACCEPTED \u2192 PREPARING \u2192 READY_FOR_PICKUP \u2192 IN_TRANSIT \u2192 DELIVERED, with CANCELLED and REFUNDED as terminal/side states.",
+      "Order: JPA entity representing a customer's food order, including line items, delivery address, total amount, Stripe PaymentIntent ID, and status lifecycle tracking.",
+      "OrderItem: Embeddable value object within an Order representing a single line item with menu item reference, name, quantity, and unit price.",
+      "MenuItem: SQLAlchemy model for a restaurant menu item with stock tracking; stock_quantity of -1 indicates unlimited availability, otherwise finite stock requiring Redis distributed locks for reservation.",
+      "Restaurant: SQLAlchemy model representing a restaurant entity with name, address, cuisine type, rating, and associated menu items.",
+      "Driver: MongoDB document representing a delivery driver with profile info, availability status, and GPS coordinates.",
+      "GeoPoint: Embedded struct in the Driver document storing latitude and longitude for real-time location tracking.",
+      "JwtAuthFilter: Spring Cloud Gateway global filter that validates JWT tokens, extracts the customer ID from the 'sub' claim, and forwards it as the X-Customer-Id header to downstream services.",
+      "order.events: RabbitMQ exchange used for publishing order lifecycle events (e.g., order.created, order status changes) consumed by the Notification Service.",
+      "acquire_lock: Redis-based distributed lock function in the Inventory Service that prevents concurrent stock overselling by acquiring an exclusive lock per menu item with TTL and retry logic.",
+      "isValidTransition: Static method on OrderStatus that enforces the allowed state machine transitions for the order lifecycle.",
+      "stripePaymentIntentId: Stripe PaymentIntent ID (pi_xxxx) stored on the Order, used for manual capture of payments and refund operations."
+    ]
+  },
+  "dynamic": {
+    "last_scanned": "2026-04-01T15:37:51.708497+00:00",
+    "secondary_languages": [
+      "Kotlin",
+      "Python",
+      "Go",
+      "TypeScript"
+    ],
+    "build_system": "maven",
+    "build_command": "docker-compose up --build",
+    "install_command": "docker-compose up --build",
+    "run_command": "docker-compose up",
+    "test_framework": "JUnit (order-service), pytest (inventory-service), go test (driver-service), Jest (notification-service)",
+    "test_directory": "order-service/src/test",
+    "source_directories": [
+      "api-gateway/src/main/kotlin",
+      "order-service/src/main/java",
+      "inventory-service",
+      "driver-service/cmd/driver",
+      "notification-service/src"
+    ],
+    "module_layout": {
+      "api-gateway": "api-gateway",
+      "order-service": "order-service",
+      "inventory-service": "inventory-service",
+      "driver-service": "driver-service",
+      "notification-service": "notification-service"
+    },
+    "architecture_summary": "The system follows a microservices architecture with an API Gateway (Kotlin/Spring Cloud Gateway) that performs JWT authentication and routes requests to three backend services: Order Service (Java/Spring Boot with PostgreSQL and Stripe payments), Inventory Service (Python/FastAPI with PostgreSQL and Redis distributed locks), and Driver Service (Go with MongoDB). RabbitMQ serves as the async event bus for order lifecycle events, consumed by a Notification Service (Node.js/TypeScript) that dispatches SMS via Twilio and emails via SendGrid.",
+    "key_components": [
+      {
+        "name": "GatewayApplication",
+        "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt",
+        "responsibility": "Spring Cloud Gateway entry point that routes external HTTP requests to internal microservices."
+      },
+      {
+        "name": "JwtAuthFilter",
+        "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt",
+        "responsibility": "Global gateway filter that validates JWT tokens and injects the authenticated customer ID as a downstream header."
+      },
+      {
+        "name": "OrderServiceApplication",
+        "path": "order-service/src/main/java/com/fooddelivery/order/OrderServiceApplication.java",
+        "responsibility": "Spring Boot entry point for the Order Service handling order CRUD and lifecycle management."
+      },
+      {
+        "name": "OrderController",
+        "path": "order-service/src/main/java/com/fooddelivery/order/controller/OrderController.java",
+        "responsibility": "REST controller exposing endpoints for creating, listing, retrieving, updating, and cancelling orders."
+      },
+      {
+        "name": "OrderService",
+        "path": "order-service/src/main/java/com/fooddelivery/order/service/OrderService.java",
+        "responsibility": "Business logic layer that manages order persistence, Stripe payment intents, status transitions, and RabbitMQ event publishing."
+      },
+      {
+        "name": "Order",
+        "path": "order-service/src/main/java/com/fooddelivery/order/model/Order.java",
+        "responsibility": "JPA entity representing a food delivery order with embedded line items, payment tracking, and audit timestamps."
+      },
+      {
+        "name": "OrderStatus",
+        "path": "order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java",
+        "responsibility": "Enum defining the order lifecycle state machine and valid state transitions."
+      },
+      {
+        "name": "Inventory Service main",
+        "path": "inventory-service/main.py",
+        "responsibility": "FastAPI application handling restaurant/menu queries and stock reservation using Redis distributed locks."
+      },
+      {
+        "name": "Inventory models",
+        "path": "inventory-service/models.py",
+        "responsibility": "SQLAlchemy ORM models for Restaurant and MenuItem entities with stock management."
+      },
+      {
+        "name": "Driver Service main",
+        "path": "driver-service/cmd/driver/main.go",
+        "responsibility": "Go HTTP server providing driver profile CRUD and location tracking backed by MongoDB with graceful shutdown."
+      },
+      {
+        "name": "Notification Service",
+        "path": "notification-service/src/index.ts",
+        "responsibility": "TypeScript service consuming RabbitMQ order events and dispatching SMS (Twilio) and email (SendGrid) notifications with idempotency guards."
+      }
+    ],
+    "agent_safe_operations": [
+      "Add new REST endpoints to existing controllers/routers in any service",
+      "Add new unit or integration tests to any service",
+      "Modify business logic in OrderService, inventory main.py, or driver main.go",
+      "Add new domain models or DTOs within existing service source directories",
+      "Update application configuration files (application.yml, application.properties, requirements.txt, package.json, pom.xml, build.gradle.kts) for non-secret values",
+      "Add new RabbitMQ event consumers or producers within existing services",
+      "Refactor existing service code for readability or performance",
+      "Add new utility/helper modules within any service's source directory"
+    ],
+    "agent_forbidden_operations": [
+      "Modify or create .env files containing real secrets",
+      "Modify lock files (go.sum, package-lock.json) manually",
+      "Change the openapi.yaml specification without coordinating across all services",
+      "Alter CI/CD workflow files without explicit approval",
+      "Modify database migration files or schema definitions that could cause data loss",
+      "Change JWT secret configuration or authentication bypass logic",
+      "Modify docker-compose.yml infrastructure service definitions",
+      "Commit Stripe, Twilio, or SendGrid API keys or any real credentials to source code",
+      "Remove or weaken the OrderStatus.isValidTransition state machine constraints"
+    ],
+    "potential_pitfalls": [
+      "Each service uses a different language and build tool \u2014 changes must respect the correct build system (Maven for order-service, Gradle for api-gateway, pip for inventory-service, go modules for driver-service, npm for notification-service).",
+      "The inventory-service uses async SQLAlchemy with asyncpg \u2014 all database operations must use async/await patterns and the AsyncSession dependency.",
+      "OrderStatus has a strict state machine enforced by isValidTransition(); adding new statuses requires updating all switch cases to avoid compilation errors.",
+      "The Order entity uses @ElementCollection for OrderItem which creates a separate order_items table \u2014 bulk operations on items can cause N+1 queries if not handled carefully.",
+      "The API Gateway's JwtAuthFilter has PUBLIC_PATHS that bypass auth \u2014 forgetting to add new public endpoints there will cause 401 errors.",
+      "The inventory service uses Redis distributed locks for stock reservation \u2014 tests that modify stock must account for Redis availability or mock the lock functions.",
+      "The driver-service is plain Go net/http with manual routing (no framework) \u2014 new endpoints require updating the ServeHTTP switch statement.",
+      "RabbitMQ exchange 'order.events' uses topic routing (order.*) \u2014 new event types must follow the 'order.<action>' naming pattern to be routed correctly.",
+      "The notification service uses an in-memory Set for idempotency \u2014 this is lost on restart; production-critical changes should consider Redis-backed idempotency.",
+      "Stripe integration uses MANUAL capture method \u2014 orders require explicit payment capture after acceptance, and refunds reference the PaymentIntent ID stored on the order."
+    ],
+    "conventions": {
+      "naming": "camelCase",
+      "structure": "monorepo"
+    },
+    "has_ci": true,
+    "has_openapi": true
+  }
+}
