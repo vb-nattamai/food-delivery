@@ -1,0 +1,42 @@
+# Food Delivery Platform
+
+## Project overview
+A polyglot microservices platform for food delivery that handles order management, restaurant inventory and menu items, driver tracking and dispatch, payment processing via Stripe, and customer notifications via SMS and email.
+
+## Language and framework
+- Primary language: TypeScript
+- Framework: Spring Boot, Spring Cloud Gateway, FastAPI, React, Vite, Tailwind CSS
+- Build system: npm
+
+## Critical commands
+- Install: docker-compose up --build
+- Build: docker-compose build
+- Test: cd order-service && mvn -B verify && cd ../inventory-service && pytest --tb=short -q && cd ../driver-service && go test ./... && cd ../notification-service && npx jest
+- Run locally: docker-compose up
+
+## Code conventions
+Naming: camelCase
+Structure: monorepo
+Source directories: api-gateway/src/main/kotlin, order-service/src/main/java, inventory-service, driver-service/cmd/driver, notification-service/src, frontend/src
+
+## Files and directories
+- Entry point: frontend/src/main.tsx
+- Tests: order-service/src/test, inventory-service/tests, driver-service/cmd/driver, notification-service/src
+
+## Do not modify
+- docker-compose.yml
+- .env.example
+
+## Domain concepts
+- Order: A customer's food purchase request containing line items, delivery address, total amount, and Stripe payment intent, progressing through a defined lifecycle of statuses.
+- OrderStatus: The lifecycle state of an order: PENDING, ACCEPTED, PREPARING, READY_FOR_PICKUP, IN_TRANSIT, DELIVERED, CANCELLED, or REFUNDED, with enforced valid transitions.
+- OrderItem: A line item within an order specifying a menu item, quantity, name, and unit price.
+- Restaurant: A food establishment with a name, address, cuisine type, rating, and associated menu items.
+- MenuItem: An item on a restaurant's menu with a price and stock quantity; stock_quantity of -1 indicates unlimited availability.
+- Driver: A delivery driver with a profile (name, phone, vehicle type), availability status, and GPS location tracked in MongoDB.
+- GeoPoint: A latitude/longitude coordinate pair representing a driver's current GPS position.
+- PaymentIntent: A Stripe PaymentIntent (pi_xxx) created with manual capture at order checkout, used for capture and refund operations.
+- Stock Reservation: A Redis distributed lock mechanism that prevents concurrent orders from overselling finite menu items.
+- Order Event: A RabbitMQ message published on the order.events exchange when an order's status changes, consumed by the Notification Service.
+- Idempotency Key: A composite key of orderId and status used by the Notification Service to prevent duplicate notification delivery.
+- Customer: An end user who places food orders, identified by a UUID extracted from the JWT sub claim.

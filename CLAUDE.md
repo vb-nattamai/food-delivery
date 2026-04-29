@@ -7,132 +7,109 @@
 Use ONLY these commands — never invent alternatives:
 
 ```bash
-# Install & start all services
+# Install
 docker-compose up --build
 
-# Build all service images
+# Build
 docker-compose build
 
-# Run all services (after initial build)
+# Test
+cd order-service && mvn -B verify && cd ../inventory-service && pytest --tb=short -q && cd ../driver-service && go test ./... && cd ../notification-service && npx jest
+
+# Run
 docker-compose up
-
-# Per-service tests (run from repo root unless noted)
-# Order Service (Java/Maven)
-cd order-service && mvn -B verify
-
-# Inventory Service (Python/pytest)
-cd inventory-service && pytest --tb=short -q
-
-# Driver Service (Go)
-cd driver-service && go test ./...
-
-# Notification Service (Node.js/Jest)
-cd notification-service && npx jest
-
-# Frontend — verify test command before use (not yet confirmed)
 ```
-
-> **Never** substitute `mvn test`, `python -m pytest`, `go run`, or any other variant not listed above.
 
 ---
 
 ## Always Do
 
-1. **Use the correct toolchain per service directory.** `order-service/` is Maven (`pom.xml`); `api-gateway/` is Gradle (`build.gradle.kts`); `inventory-service/` is Python/pytest; `driver-service/` is Go modules; `notification-service/` is Node.js/Jest; `frontend/` is Vite/npm. Never run a build tool in the wrong directory.
+1. **Use each service's native idioms.** Java/Spring Boot for `order-service/src/main/java/`, Python/FastAPI for `inventory-service/main.py`, Go stdlib for `driver-service/cmd/driver/main.go`, and TypeScript/Node for `notification-service/src/index.ts`. Never mix patterns across services.
 
-2. **Route all new data access in `driver-service/` through the `DriverStore` interface.** Never call MongoDB directly from handler code — always go through the `DriverStore` abstraction so mock-based tests remain valid.
+2. **Add Lombok-compatible annotations in `order-service`.** All entities and DTOs in `order-service/src/main/java/com/fooddelivery/order/` use `@Getter`, `@Setter`, `@Builder`. Ensure your build environment has Lombok configured before adding new model classes.
 
-3. **Await every database call in `inventory-service/`.** The service uses async SQLAlchemy with `asyncpg`. Every query must use `AsyncSession` and be properly `await`ed — synchronous SQLAlchemy patterns will fail silently or deadlock.
+3. **Use `async`/`await` for all database operations in `inventory-service`.** The service uses async SQLAlchemy with the asyncpg driver in `inventory-service/main.py` and `inventory-service/models.py`. Never use synchronous SQLAlchemy session patterns.
 
-4. **Keep RabbitMQ exchange names and routing keys in sync.** The `order-service` publishes to the `order.events` exchange. The `notification-service/src/index.ts` must bind to that exact exchange name and routing pattern. If you touch either side, verify both.
+4. **Implement the full `DriverStore` interface when adding database operations to `driver-service`.** New methods must be added to the `DriverStore` interface, the `mongoDriverStore` struct implementation, and the `mockStore` used in tests under `driver-service/cmd/driver/`.
 
-5. **Respect `OrderStatus.isValidTransition` in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java`.** Every new status or transition rule must be reflected in the full transition table in that file — partial updates will cause runtime rejections of valid business flows.
+5. **Preserve the `X-Customer-Id` header contract.** The JWT Auth Filter in `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt` sets `X-Customer-Id` from the JWT `sub` claim. All downstream services (`order-service`, `inventory-service`, `driver-service`) consume this header. Any new service or endpoint that requires customer identity must read from `X-Customer-Id`, not re-parse the JWT.
 
-6. **Inject all authentication through the API Gateway.** Downstream services (`order-service`, `inventory-service`, `driver-service`) trust the `X-Customer-Id` header injected by `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt`. Never call downstream services directly in a way that bypasses this header.
+6. **Match existing RabbitMQ exchange and routing key conventions exactly.** The `order-service` publishes to the `order.events` exchange with `order.*` routing keys. The `notification-service/src/index.ts` consumes from this same topology. New event producers or consumers must use these exact names.
 
-7. **Keep the `PaymentGateway` interface intact in `order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java`.** All Stripe operations must go through the `PaymentGateway` abstraction — removing or bypassing it breaks unit test mocking for the entire order payment flow.
+7. **Match `@tanstack/react-query` query keys exactly when adding mutations to the frontend.** Cache invalidation in the React frontend depends on precise key matching. Review existing query keys in `frontend/src/` before adding any new `useMutation` or `useQuery` calls.
 
-8. **Use only environment variables listed in the `environment_variables` section for configuration.** Never hardcode credentials, hostnames, or secrets anywhere in service source code. Reference `.env.example` for the canonical list.
+8. **Read environment configuration from the variables defined in `.env.example`.** All services source secrets and connection strings from environment variables (e.g., `STRIPE_API_KEY`, `JWT_SECRET`, `MONGO_URI`, `RABBITMQ_URL`). Never hardcode these values in source files.
 
 ---
 
 ## Never Do
 
-1. **Never modify `.github/workflows/ci.yml`, `.github/workflows/agentic-ready.yml`, or `.github/workflows/context-drift-detector.yml`.** These CI/CD files are off-limits regardless of the change being made.
+1. **Never modify `JwtAuthFilter.kt` to bypass or weaken authentication.** The file `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt` is the sole authentication enforcement point for all external traffic. Changes that skip token validation break security across every service.
 
-2. **Never edit `docker-compose.yml` infrastructure service definitions.** This file governs how all services, databases, and brokers are wired together. Changes here can silently break the entire platform.
+2. **Never change Stripe API key handling or payment capture logic in `StripePaymentGateway.java`.** The file `order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java` manages live payment intents with manual capture. Altering this logic risks unauthorized charges or failed captures.
 
-3. **Never write real credentials into `.env.example`.** This file contains placeholder values only. Real secrets belong in an untracked `.env` file that is never committed.
+3. **Never remove or weaken the transition guard in `OrderStatus.isValidTransition`.** The file `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java` enforces which status changes are legal. Removing this validation allows invalid state mutations (e.g., jumping from `PENDING` to `DELIVERED`).
 
-4. **Never modify `openapi.yaml` in isolation.** The OpenAPI spec is the contract between the frontend, gateway, and all backend services. Changes must be coordinated across every affected service before the spec is updated.
+4. **Never disable Redis distributed locking in `inventory-service/main.py`.** Stock reservation uses Redis distributed locks to prevent overselling finite `MenuItem` quantities. Any code path that modifies `stock_quantity` must acquire and release these locks correctly.
 
-5. **Never change the JWT secret, signing algorithm, or authentication flow** in `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt` without updating every service that consumes the `X-Customer-Id` header.
+5. **Never remove idempotency checks in `notification-service/src/index.ts`.** The composite idempotency key (`orderId` + `status`) prevents duplicate SMS (Twilio) and email (SendGrid) sends. Removing this check causes repeat customer notifications on redelivered RabbitMQ messages.
 
-6. **Never modify `agent-context.json`, `AGENTS.md`, or `CLAUDE.md` directly.** These files are managed by the AgentReady toolchain. The static section of `agent-context.json` is the only part safe to edit manually.
+6. **Never change the `X-Customer-Id` header name or the JWT `sub` claim structure.** The contract between `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt` and all downstream services is implicit. Renaming this header or restructuring the claim silently breaks customer identity resolution everywhere.
 
-7. **Never drop, rename, or alter database tables or columns without a corresponding migration strategy.** No ad-hoc schema changes in `inventory-service/models.py` (SQLAlchemy) or in the Order Service JPA entities without a migration file.
+7. **Never directly edit `docker-compose.yml` or `.env.example` without cross-service review.** These files define the shared runtime topology and secret contract for all services. Uncoordinated changes break service-to-service communication.
 
-8. **Never rename or restructure the `order.events` RabbitMQ exchange or its routing key pattern** without simultaneously updating both the publisher in `order-service/src/main/java/com/fooddelivery/order/service/OrderService.java` and the consumer in `notification-service/src/index.ts`.
+8. **Never hardcode secrets, credentials, or API keys in any source file.** This applies to `STRIPE_API_KEY`, `JWT_SECRET`, `TWILIO_AUTH_TOKEN`, `SENDGRID_API_KEY`, and all other variables listed in `.env.example`. Use environment variable injection only.
 
 ---
 
 ## Architecture Notes
 
-1. **API Gateway is the sole entry point and auth enforcer.** `api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt` uses Spring Cloud Gateway with a global `JwtAuthFilter`. It validates JWT tokens and stamps `X-Customer-Id` on every forwarded request. Downstream services perform no independent JWT validation — they are fully dependent on this header being present and correct.
+1. **All external traffic is funneled through the API Gateway.** `api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt` uses Spring Cloud Gateway to route requests and `JwtAuthFilter.kt` to validate JWTs and inject `X-Customer-Id`. Backend services at `ORDER_SERVICE_URL`, `INVENTORY_SERVICE_URL`, and `DRIVER_SERVICE_URL` are not directly reachable by the frontend — only the gateway is.
 
-2. **Asynchronous inter-service communication runs through RabbitMQ.** Order lifecycle state changes are published by `OrderService.java` to the `order.events` exchange. `notification-service/src/index.ts` is the sole consumer, triggering Twilio SMS and SendGrid email notifications. This is a fire-and-forget event bus — there is no guaranteed delivery confirmation back to the order service.
+2. **Order payments use Stripe manual capture via an interface abstraction.** `order-service/src/main/java/com/fooddelivery/order/service/OrderService.java` calls the `PaymentGateway` interface, not Stripe directly. The live implementation is `StripePaymentGateway.java`; tests swap in a mock through this interface. Payment intents (`pi_xxx`) are created at checkout and captured on delivery confirmation.
 
-3. **The inventory service uses Redis distributed locks to prevent overselling.** When a stock reservation is made in `inventory-service/main.py`, a Redis lock with a 10-second TTL is acquired per `MenuItem`. The `stock_quantity` of `-1` is a sentinel value meaning unlimited stock, which bypasses locking entirely.
+3. **Inter-service events flow through RabbitMQ, not direct HTTP calls.** When `OrderService.java` changes an order's status, it publishes an Order Event to the `order.events` exchange. `notification-service/src/index.ts` subscribes to this exchange to trigger Twilio SMS and SendGrid email — these services are decoupled and do not call each other over HTTP.
 
-4. **Each service owns its own data store with no shared databases.** Order Service → PostgreSQL (via Spring Data JPA); Inventory Service → PostgreSQL (via async SQLAlchemy) + Redis; Driver Service → MongoDB (via the `DriverStore` interface in Go); Notification Service → stateless (in-memory idempotency set only). Cross-service data access must go through HTTP APIs, never direct DB connections.
+4. **PostgreSQL is shared between `order-service` and `inventory-service`.** Both services connect to the same PostgreSQL instance via `SPRING_DATASOURCE_URL` / `DATABASE_URL`. Schema migrations in one service can impact the other if table or column names overlap. The `Driver` entity is isolated in MongoDB (`MONGO_URI`), accessed only by `driver-service`.
 
 ---
 
 ## Domain Context
 
+Domain concepts verified from source code analysis:
+
 | Term | Definition |
 |---|---|
-| **Order** | A customer's food purchase with items, delivery address, payment info, and a lifecycle status tracked from PENDING to DELIVERED/REFUNDED. |
-| **OrderStatus** | Enum in `OrderStatus.java` representing the lifecycle: `PENDING → ACCEPTED → PREPARING → READY_FOR_PICKUP → IN_TRANSIT → DELIVERED`, with `CANCELLED` and `REFUNDED` as terminal/side states. |
-| **Driver** | A delivery driver with profile info, GPS location tracking, and availability status, stored in MongoDB and accessed via the `DriverStore` interface. |
-| **GeoPoint** | A latitude/longitude pair representing a driver's current GPS coordinates, updated via the Driver Service. |
-| **Restaurant** | A food establishment with menu items, address, cuisine type, and rating, modelled in `inventory-service/models.py`. |
-| **MenuItem** | An item on a restaurant's menu with price and stock quantity. `stock_quantity = -1` means unlimited availability and bypasses Redis locking. |
-| **PaymentGateway** | Interface in the order-service abstracting Stripe operations (PaymentIntent creation, refunds) to enable mock-based unit testing. |
-| **DriverStore** | Go interface abstracting all MongoDB operations for driver CRUD, enabling mock-based testing in the driver service. |
-| **OrderEvent** | A RabbitMQ message representing an order lifecycle state change, published by `OrderService.java` and consumed by `notification-service/src/index.ts`. |
-| **Distributed Lock** | Redis-based lock in `inventory-service/main.py` with a 10-second TTL preventing overselling of finite stock items during concurrent reservations. |
-| **Idempotency Key** | An `(orderId, status)` composite key held in an in-memory `Set` in `notification-service/src/index.ts` to prevent duplicate notification delivery — resets on service restart. |
+| **Order** | A customer's food purchase request containing line items, delivery address, total amount, and a Stripe PaymentIntent, progressing through a defined lifecycle of statuses. |
+| **OrderStatus** | The lifecycle state of an order: `PENDING`, `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP`, `IN_TRANSIT`, `DELIVERED`, `CANCELLED`, or `REFUNDED`. Transitions are enforced by `OrderStatus.isValidTransition` in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java`. |
+| **OrderItem** | A line item within an order specifying a menu item, quantity, name, and unit price. |
+| **Restaurant** | A food establishment with a name, address, cuisine type, rating, and associated menu items. Defined in `inventory-service/models.py`. |
+| **MenuItem** | An item on a restaurant's menu with a price and `stock_quantity`. A `stock_quantity` of `-1` indicates unlimited availability. Defined in `inventory-service/models.py`. |
+| **Driver** | A delivery driver with a profile (name, phone, vehicle type), availability status, and GPS location tracked in MongoDB via `driver-service/cmd/driver/main.go`. |
+| **GeoPoint** | A latitude/longitude coordinate pair representing a driver's current GPS position. |
+| **PaymentIntent** | A Stripe PaymentIntent (`pi_xxx`) created with manual capture at order checkout, used for capture and refund operations via `StripePaymentGateway.java`. |
+| **Stock Reservation** | A Redis distributed lock mechanism in `inventory-service/main.py` that prevents concurrent orders from overselling finite `MenuItem` stock. |
+| **Order Event** | A RabbitMQ message published on the `order.events` exchange when an order's status changes, consumed by `notification-service/src/index.ts`. |
+| **Idempotency Key** | A composite key of `orderId` and `status` used by `notification-service/src/index.ts` to prevent duplicate SMS and email delivery. |
+| **Customer** | An end user who places food orders, identified by a UUID extracted from the JWT `sub` claim and forwarded as `X-Customer-Id`. |
+| **Settings** | Configuration data class defined in `inventory-service/main.py` that governs the inventory service's runtime configuration. |
 
 ---
 
 ## Known Pitfalls — Read Before Writing Any Code
 
-> ⚠️ This section is critical. Read every item before making any change.
-
-1. Each service uses a different language, build system, and test framework — changes must be made with the correct toolchain for each service.
-
-2. The order-service uses Maven (pom.xml) while the api-gateway uses Gradle (build.gradle.kts) — do not confuse build commands.
-
-3. The inventory-service uses async SQLAlchemy with asyncpg — all database operations must be awaited and use AsyncSession.
-
-4. Redis distributed locks in inventory-service have a 10-second TTL — long-running operations could cause lock expiry and race conditions.
-
-5. The Notification Service idempotency is in-memory (Set) — it resets on restart, so duplicate messages are possible after service restarts.
-
-6. The Driver Service Go code uses a DriverStore interface — all new data operations must go through this interface, not directly to MongoDB.
-
-7. Frontend LoginView generates dev JWTs client-side with a hardcoded secret — this must never be used in production.
-
-8. The docker-compose.yml is truncated in the repo — the inventory-service and remaining services may have incomplete configuration.
-
-9. OrderStatus.isValidTransition enforces a strict state machine — adding new statuses requires updating all transition rules.
-
-10. The API Gateway forwards X-Customer-Id header — downstream services trust this header implicitly, so bypassing the gateway breaks auth.
-
-11. The frontend hardcodes baseURL to localhost:8080 — this will fail in non-local environments.
-
-12. The order-service publishes to 'order.events' RabbitMQ exchange — the notification-service must bind to the same exchange name and routing pattern.
+1. Each service uses a different language, framework, and build system — changes must use the correct idioms (Java/Spring, Python/FastAPI, Go stdlib, TypeScript/Node).
+2. Order status transitions are strictly validated in `OrderStatus.isValidTransition`; adding new statuses requires updating the switch expression and all consuming services.
+3. The inventory service uses Redis distributed locks for stock reservation — any stock-modifying code must acquire and release locks correctly or risk deadlocks/overselling.
+4. The Order Service, Inventory Service, and Notification Service communicate via RabbitMQ with specific exchange/routing key conventions (`order.events`, `order.*`) — changes must be synchronized.
+5. The API Gateway forwards `X-Customer-Id` header from JWT claims — downstream services trust this header implicitly, so any changes to the header name or JWT claim structure break auth across all services.
+6. The order-service uses Lombok annotations (`@Getter`, `@Setter`, `@Builder`) — IDEs and build tools must have Lombok configured or compilation will fail.
+7. Python inventory-service uses async SQLAlchemy (asyncpg driver) — all database operations must use async/await patterns, not synchronous SQLAlchemy APIs.
+8. The Go driver-service uses a `DriverStore` interface for testability — new database operations must be added to both the interface and the `mongoDriverStore` implementation plus the `mockStore` in tests.
+9. The frontend dev login view generates JWTs with a hardcoded dev secret that must match the gateway's `JWT_SECRET` in development — mismatched secrets cause silent 401 errors.
+10. The notification service's in-memory idempotency Set resets on restart — duplicate notifications can occur after service restarts until this is replaced with Redis.
+11. PostgreSQL is shared between order-service and inventory-service — schema changes in one service can affect the other if tables/columns overlap.
+12. The frontend uses `@tanstack/react-query` with specific query keys — cache invalidation depends on matching these keys exactly when adding mutations.
 
 ---
 
@@ -140,16 +117,10 @@ cd notification-service && npx jest
 
 Run this checklist before considering any task complete:
 
-- [ ] **Run the test suite for every service you touched:**
-  - `order-service`: `cd order-service && mvn -B verify`
-  - `inventory-service`: `cd inventory-service && pytest --tb=short -q`
-  - `driver-service`: `cd driver-service && go test ./...`
-  - `notification-service`: `cd notification-service && npx jest`
-  - `frontend`: verify test command before use
-- [ ] **Verify the full platform still starts:** `docker-compose up --build` — confirm all service health checks pass and no container exits unexpectedly.
-- [ ] **If you touched `OrderStatus.java`:** Confirm `isValidTransition` covers every possible source and destination state pair, including the new one you added.
-- [ ] **If you touched the RabbitMQ exchange or routing key:** Confirm both `OrderService.java` (publisher) and `notification-service/src/index.ts` (consumer) reference identical exchange names and routing patterns.
-- [ ] **If you touched `inventory-service/` database code:** Confirm every new query uses `AsyncSession` and is `await`ed — run `pytest --tb=short -q` and verify no warnings about unawaited coroutines.
-- [ ] **If you touched `driver-service/`:** Confirm all new MongoDB interactions go through the `DriverStore` interface, not the MongoDB client directly.
-- [ ] **If you touched the frontend:** Confirm no real secrets or non-localhost URLs were hardcoded into `frontend/src/api/client.ts` or `frontend/src/contexts/AuthContext.tsx`.
-- [ ] **Confirm none of the restricted paths were modified:** `.github/workflows/ci.yml`, `.github/workflows/agentic-ready.yml`, `.github/workflows/context-drift-detector.yml`, `.env.example`, `docker-compose.yml`, `openapi.yaml`, `agent-context.json`, `
+- [ ] **Run the full test suite:**
+  ```bash
+  cd order-service && mvn -B verify && cd ../inventory-service && pytest --tb=short -q && cd ../driver-service && go test ./... && cd ../notification-service && npx jest
+  ```
+- [ ] **If you changed `order-service`:** Confirm Lombok annotations are present on all new model classes and that `mvn -B verify` compiles cleanly.
+- [ ] **If you changed `inventory-service`:** Confirm all new database access paths use `async`/`await` with the asyncpg-backed session.
+- [ ] **If you changed `driver-service`:**

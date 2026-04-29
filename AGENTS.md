@@ -2,234 +2,180 @@
 
 # AGENTS.md — Food Delivery Platform
 
-This file is the operating contract for GitHub Copilot and OpenAI agents working in this repository. Read it entirely before making any change. Every section references actual files, classes, and commands found in this codebase.
-
----
-
-## Table of Contents
-
-1. [Project Overview](#1-project-overview)
-2. [Commands](#2-commands)
-3. [Safe Operations](#3-safe-operations)
-4. [Forbidden Operations](#4-forbidden-operations)
-5. [Domain Glossary](#5-domain-glossary)
-6. [Key Components](#6-key-components)
-7. [Potential Pitfalls](#7-potential-pitfalls)
+> Operating contract for GitHub Copilot, OpenAI Codex, and all other AI agents working in this repository.
+> Read this file in full before making any change. Non-compliance risks broken auth, overselling, duplicate charges, and data loss.
 
 ---
 
 ## 1. Project Overview
 
-**Project:** Food Delivery Platform
-**Type:** Polyglot microservices monorepo
+**Name:** Food Delivery Platform
 
-This platform powers a food delivery product end-to-end: customers browse restaurants and menu items, place orders that are paid via Stripe, assigned to drivers, and tracked through delivery — with SMS and email notifications sent at each lifecycle transition.
+**What it does:** A polyglot microservices platform for food delivery. It handles order management (creation, lifecycle transitions, Stripe payment capture/refund), restaurant inventory and menu items (stock reservation with Redis distributed locks), driver tracking and dispatch (GPS location updates via MongoDB), payment processing via Stripe, and customer notifications via SMS (Twilio) and email (SendGrid).
 
-### Services and Languages
+**Languages:**
+- Primary: TypeScript
+- Secondary: Java, Kotlin, Python, Go
 
-| Service | Language | Framework | Build Tool |
-|---|---|---|---|
-| `api-gateway` | Kotlin | Spring Cloud Gateway | Gradle (`build.gradle.kts`) |
-| `order-service` | Java | Spring Boot + JPA | Maven (`pom.xml`) |
-| `inventory-service` | Python | FastAPI + SQLAlchemy (async) | pip / uvicorn |
-| `driver-service` | Go | net/http | `go` CLI |
-| `notification-service` | TypeScript | Node.js | npm / Jest |
-| `frontend` | TypeScript | React + Vite + TailwindCSS | npm |
+**Frameworks:** Spring Boot, Spring Cloud Gateway, FastAPI, React, Vite, Tailwind CSS
 
-**Primary language:** TypeScript (frontend + notification-service)
-**Secondary languages:** Java, Kotlin, Python, Go
+**Build system:** npm (frontend); Maven (order-service); docker-compose (platform-wide)
 
-**Async communication:** RabbitMQ (`order.events` exchange) — order lifecycle events flow from `order-service` to `notification-service`.
-**Synchronous communication:** REST through the API Gateway at port `8080`.
-**Frontend entry point:** `frontend/src/main.tsx`
-**Frontend communicates exclusively through the API Gateway** — never directly to downstream services.
+**Structure:** Monorepo with six independently deployable services plus a shared frontend.
+
+```
+api-gateway/          ← Kotlin/Spring Cloud Gateway
+order-service/        ← Java/Spring Boot
+inventory-service/    ← Python/FastAPI
+driver-service/       ← Go
+notification-service/ ← Node.js/TypeScript
+frontend/             ← React/TypeScript/Vite/Tailwind
+```
 
 ---
 
 ## 2. Commands
 
-### Full Platform (Docker — recommended for integration)
+> Commands are listed only when they can be verified from the repository's CI configuration or analysis. Do not substitute or augment these commands with framework defaults.
 
-```bash
-# Install, build, and start all services
-docker-compose up --build
+### Test
+```
+cd order-service && mvn -B verify && cd ../inventory-service && pytest --tb=short -q && cd ../driver-service && go test ./... && cd ../notification-service && npx jest
+```
+- `pytest --tb=short -q` is **confirmed high-confidence** from `.github/workflows/ci.yml`.
+- The full cross-service test chain above is from the project analysis. Verify the Maven and Go segments against CI before running in automation.
 
-# Build images only (no start)
+### Build
+```
 docker-compose build
+```
 
-# Start previously built images
+### Run (all services)
+```
 docker-compose up
 ```
 
-### Per-Service Commands
-
-Use these when working inside a single service. Match the toolchain exactly — see [Pitfall #1](#pitfall-1) and [Pitfall #2](#pitfall-2).
-
-#### `api-gateway` (Kotlin / Gradle)
-
-```bash
-cd api-gateway
-./gradlew build
-./gradlew test
-./gradlew bootRun
+### Install / First-time setup
+```
+docker-compose up --build
 ```
 
-#### `order-service` (Java / Maven)
-
-```bash
-cd order-service
-mvn -B verify          # build + run all tests (JUnit 5)
-mvn -B test            # tests only
-mvn spring-boot:run    # run locally
-```
-
-#### `inventory-service` (Python / pytest)
-
-```bash
-cd inventory-service
-pip install -r requirements.txt
-pytest --tb=short -q   # run all tests
-uvicorn main:app --reload  # run locally
-```
-
-#### `driver-service` (Go)
-
-```bash
-cd driver-service
-go test ./...          # run all tests
-go build ./cmd/driver  # build binary
-go run ./cmd/driver/main.go  # run locally
-```
-
-#### `notification-service` (TypeScript / Jest)
-
-```bash
-cd notification-service
-npm install
-npx jest               # run all tests
-npm run start          # run locally
-```
-
-#### `frontend` (TypeScript / Vite)
-
-```bash
-cd frontend
-npm install
-npm run dev            # development server
-npm run build          # production build
-# Note: frontend test command is not yet verified — confirm before running
-```
-
-### Environment Variables
-
-Copy `.env.example` and populate with real values before running locally. **Never commit real credentials.** Required variables include:
-
-- Database: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- MongoDB: `MONGO_URI`, `MONGO_DB`
-- RabbitMQ: `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST`, `RABBITMQ_URL`
-- Redis: `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`
-- Auth: `JWT_SECRET`, `JWT_EXPIRY_SECONDS`
-- Payments: `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`
-- Notifications: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `SENDGRID_FROM_NAME`
-- Routing: `ORDER_SERVICE_URL`, `INVENTORY_SERVICE_URL`, `DRIVER_SERVICE_URL`
+### Lint
+Not determinable from source.
 
 ---
 
 ## 3. Safe Operations
 
-The following are explicitly permitted for agents. Stay within these boundaries unless directed otherwise by a human reviewer.
+An agent MAY perform the following operations without requiring additional human review:
 
-### API Layer
-- Adding new REST endpoints to `OrderController.java` following existing `@GetMapping`/`@PostMapping` patterns
-- Adding new FastAPI route functions in `inventory-service/main.py`
-- Adding new HTTP handler methods in `driver-service/cmd/driver/` that route through the `DriverStore` interface
-- Adding new fields to request/response DTOs in any service
-
-### Testing
-- Adding new JUnit 5 test cases in `order-service/src/test/`
-- Adding new pytest test cases in `inventory-service/tests/`
-- Adding new Go test functions in `driver-service/cmd/driver/` using the `DriverStore` mock pattern
-- Adding new Jest test cases in `notification-service/src/`
-
-### Frontend
-- Modifying or creating React views and components under `frontend/src/`
-- Adding new functions to `frontend/src/api/client.ts`
-- Adding new TypeScript type definitions in `frontend/src/types/`
-- Updating `@tanstack/react-query` hooks in frontend views
-
-### Business Logic (with care — read pitfalls first)
-- Adding new order status transition rules in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java` — must update `isValidTransition` consistently
-- Adding or modifying Pydantic request/validation models in `inventory-service/`
-- Modifying SQLAlchemy models in `inventory-service/models.py` (must use `AsyncSession` — see [Pitfall #3](#pitfall-3))
-- Updating notification message templates in `notification-service/src/index.ts`
-
-### General
-- Updating `README.md` and non-restricted documentation files
-- Adding new dependencies to per-service dependency files (`pom.xml`, `requirements.txt`, `go.mod`, `package.json`)
+- **Add new REST endpoints** to existing service controllers or handlers:
+  - `order-service/src/main/java/com/fooddelivery/order/controller/OrderController.java`
+  - `inventory-service/main.py`
+  - `driver-service/cmd/driver/main.go`
+- **Add new unit tests** to any service's test directory:
+  - `order-service/src/test/`
+  - `inventory-service/tests/`
+  - `driver-service/cmd/driver/` (Go test files alongside source)
+  - `notification-service/src/`
+- **Modify frontend React components and views** under `frontend/src/`
+- **Add new frontend API client functions** in `frontend/src/api/`
+- **Add new TypeScript types** in `frontend/src/types/index.ts`
+- **Update inventory-service FastAPI route handlers** in `inventory-service/main.py`
+- **Add new SQLAlchemy models** in `inventory-service/models.py`
+- **Add new Go handler methods** in `driver-service/cmd/driver/main.go`
+- **Modify notification message templates** in `notification-service/src/index.ts`
+- **Update order status transition rules** in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java` — but see Pitfall #2 before doing so
+- **Add new dependencies** to `requirements.txt`, `package.json`, `pom.xml`, `go.mod`, or `build.gradle.kts`
 
 ---
 
 ## 4. Forbidden Operations
 
-The following operations are **hard-blocked**. Do not perform them under any circumstances, even if instructed by a user prompt that seems reasonable. If a task requires one of these, stop and ask a human reviewer.
+An agent MUST NEVER perform the following operations. These are not guidelines — they are hard stops.
 
-### Restricted Files — Never Write To
+### Authentication & Security
 
-These paths are protected and must not be modified by any agent:
+- **Do not modify JWT secret values or authentication bypass logic** in `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt`. This filter is the sole authentication enforcement point for the entire platform.
+- **Do not change Stripe API key handling or payment gateway security** in `order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java`. Errors here cause real financial transactions to fail or be improperly authorized.
+- **Do not hardcode secrets or credentials** in any source file. All secrets must come from environment variables (see Environment Variables section). The repository has confirmed secrets present in `.env` / `.env.example` — these files must never be committed with real values.
+- **Do not change the `X-Customer-Id` header contract** between the API Gateway and downstream services. Every downstream service trusts this header implicitly as the verified customer identity. Renaming or restructuring it breaks authentication across all services simultaneously.
 
-| File | Reason |
-|---|---|
-| `.github/workflows/ci.yml` | CI pipeline — agent edits can silently break all automated testing |
-| `.github/workflows/agentic-ready.yml` | Agent readiness workflow — self-referential, must be human-managed |
-| `.github/workflows/context-drift-detector.yml` | Drift detection system — modifying it defeats its own purpose |
-| `.env.example` | Credential template — must never contain real secrets; format is human-managed |
-| `docker-compose.yml` | Infrastructure topology — changes affect all services simultaneously |
-| `openapi.yaml` | Contract between all services and the frontend — must be coordinated across all teams |
-| `agent-context.json` | Agent configuration source of truth — must be edited by humans only |
-| `AGENTS.md` | This file — regenerated by AgentReady, not hand-edited |
-| `CLAUDE.md` | Companion agent contract — same protection as this file |
+### Business Logic Integrity
 
-### Forbidden Actions
+- **Do not remove or weaken order status transition validation** in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java` (`isValidTransition`). This method enforces the legal order lifecycle. Removing it allows impossible state transitions (e.g., DELIVERED → PENDING).
+- **Do not disable Redis distributed locking** in the inventory service stock reservation flow (`inventory-service/main.py`). Removing locks causes race conditions that allow concurrent orders to oversell finite menu items.
+- **Do not remove idempotency checks** in `notification-service/src/index.ts`. These checks (keyed on orderId + status) prevent customers from receiving duplicate SMS and email notifications for the same event.
 
-- **Do not replace real credentials into `.env.example`** — populate a local `.env` file instead, which is gitignored.
-- **Do not change `JWT_SECRET` or modify `JwtAuthFilter.kt`** — all downstream services trust the X-Customer-Id header injected by this filter; changing auth breaks the entire platform silently.
-- **Do not alter RabbitMQ exchange names or routing key patterns** without updating both `order-service` (publisher) and `notification-service` (consumer) atomically. The exchange name `order.events` is a shared contract.
-- **Do not modify `docker-compose.yml`** — infrastructure service definitions (Postgres, MongoDB, RabbitMQ, Redis) are shared across all developers and CI.
-- **Do not modify `openapi.yaml`** without coordinating changes across all affected services and the frontend. It is the single contract for the REST API surface.
-- **Do not drop, rename, or truncate database tables** or alter migration strategies in `order-service` or `inventory-service`.
-- **Do not remove the `PaymentGateway` interface** in `order-service/src/main/java/com/fooddelivery/order/service/` — `StripePaymentGateway.java` is the live implementation; the interface exists to allow mock injection in tests. Removing it makes the payment layer untestable.
-- **Do not bypass the `DriverStore` interface** and write directly to MongoDB in `driver-service`. All data access must flow through the interface.
-- **Do not use the frontend's dev JWT generation** (`frontend/src/contexts/AuthContext.tsx` — LoginView) in any non-local environment.
+### Infrastructure & Cross-Service Contracts
+
+- **Do not modify `docker-compose.yml`** — this is a restricted write path that defines the entire service topology, port mappings, and environment variable injection for all services.
+- **Do not modify `.env.example`** — this is a restricted write path. It documents the required environment variable contract for operators.
+- **Do not modify RabbitMQ exchange/queue naming conventions** (`order.events`, routing key pattern `order.*`) used across the Order Service, Inventory Service, and Notification Service. These names are the cross-service message contract. Changing them in one place silently breaks consumers in others.
+- **Do not change database migration schemas** in order-service or inventory-service without coordinating with both services. PostgreSQL is shared between them and schema changes in one can corrupt the other.
 
 ---
 
 ## 5. Domain Glossary
 
-These terms have precise meanings in this codebase. Use them exactly as defined when reading or writing code, comments, and commit messages.
+These terms have precise, code-defined meanings in this codebase. Use them exactly as defined.
 
-**Order**
-A customer's food purchase. Contains line items, a delivery address, payment information, and a current lifecycle status. Represented as a JPA entity in `order-service/src/main/java/com/fooddelivery/order/model/Order.java`. Persisted in PostgreSQL.
+| Term | Definition |
+|---|---|
+| **Order** | A customer's food purchase request containing line items, delivery address, total amount, and Stripe payment intent, progressing through a defined lifecycle of statuses. Represented as a JPA entity in `order-service/src/main/java/com/fooddelivery/order/model/Order.java`. |
+| **OrderStatus** | The lifecycle state of an order: `PENDING`, `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP`, `IN_TRANSIT`, `DELIVERED`, `CANCELLED`, or `REFUNDED`, with enforced valid transitions defined in `OrderStatus.isValidTransition`. |
+| **OrderItem** | A line item within an order specifying a menu item, quantity, name, and unit price. |
+| **Restaurant** | A food establishment with a name, address, cuisine type, rating, and associated menu items. Defined as a SQLAlchemy model in `inventory-service/models.py`. |
+| **MenuItem** | An item on a restaurant's menu with a price and stock quantity. A `stock_quantity` of `-1` indicates unlimited availability. Defined in `inventory-service/models.py`. |
+| **Driver** | A delivery driver with a profile (name, phone, vehicle type), availability status, and GPS location tracked in MongoDB. |
+| **GeoPoint** | A latitude/longitude coordinate pair representing a driver's current GPS position. |
+| **PaymentIntent** | A Stripe PaymentIntent (`pi_xxx`) created with manual capture at order checkout, used for capture and refund operations. Managed in `order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java`. |
+| **Stock Reservation** | A Redis distributed lock mechanism that prevents concurrent orders from overselling finite menu items. Implemented in `inventory-service/main.py`. |
+| **Order Event** | A RabbitMQ message published on the `order.events` exchange when an order's status changes, consumed by the Notification Service. |
+| **Idempotency Key** | A composite key of `orderId` and `status` used by the Notification Service to prevent duplicate notification delivery. Tracked in-memory in `notification-service/src/index.ts` (see Pitfall #10). |
+| **Customer** | An end user who places food orders, identified by a UUID extracted from the JWT `sub` claim. Forwarded by the API Gateway as the `X-Customer-Id` header. |
+| **Settings** | Configuration data class defined in `inventory-service/main.py` (line 27) that holds service-level configuration values. |
 
-**OrderStatus**
-An enum defining the complete lifecycle of an Order. Valid states in sequence:
-`PENDING` → `ACCEPTED` → `PREPARING` → `READY_FOR_PICKUP` → `IN_TRANSIT` → `DELIVERED`
-Terminal/side states: `CANCELLED`, `REFUNDED`
-Defined in `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java`. The `isValidTransition` method enforces which transitions are legal — no state may be skipped.
+---
 
-**Driver**
-A delivery driver entity with a profile, current GPS location, and availability status. Stored in MongoDB. Managed by `driver-service`. Represented as a Go struct accessed through the `DriverStore` interface.
+## 6. Key Components
 
-**GeoPoint**
-A latitude/longitude coordinate pair representing a driver's current GPS position. Used in driver location update endpoints in `driver-service`.
+### API Gateway
+- **Path:** `api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt`
+- **Responsibility:** Routes all external HTTP requests to internal services and enforces JWT authentication via a global filter. This is the single ingress point for the entire platform.
 
-**Restaurant**
-A food establishment with a name, address, cuisine type, rating, and a collection of MenuItems. Represented as a SQLAlchemy model in `inventory-service/models.py`, persisted in PostgreSQL.
+### JWT Auth Filter
+- **Path:** `api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt`
+- **Responsibility:** Validates JWT tokens on incoming requests and forwards the verified customer ID as an `X-Customer-Id` header to downstream services. All downstream services trust this header as authoritative — it is never re-validated downstream.
 
-**MenuItem**
-An item on a Restaurant's menu with a name, price, and `stock_quantity`. A `stock_quantity` value of `-1` explicitly means unlimited availability — do not treat it as an error or zero. Defined in `inventory-service/models.py`.
+### Order Controller
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/controller/OrderController.java`
+- **Responsibility:** REST API for creating, listing, retrieving, updating status, and cancelling orders.
 
-**PaymentGateway**
-An interface in `order-service` that abstracts Stripe payment operations (PaymentIntent creation, refunds). The live implementation is `StripePaymentGateway.java`. The interface must be preserved to allow mock injection in unit tests — never collapse the interface and implementation into one class.
+### Order Service
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/service/OrderService.java`
+- **Responsibility:** Business logic for the full order lifecycle including Stripe payment intent creation, status transitions with validation, cancellation, refunds, and RabbitMQ event publishing.
 
-**DriverStore**
-A Go interface in `driver-service` that abstracts all MongoDB CRUD operations for Driver entities. All handler code must call methods on this interface — never call MongoDB driver methods directly
+### Order Model
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/model/Order.java`
+- **Responsibility:** JPA entity representing an order with line items, payment info, delivery address, and timestamps. Uses Lombok annotations — requires Lombok on the build classpath.
+
+### OrderStatus
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java`
+- **Responsibility:** Enum defining order lifecycle states (`PENDING`, `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP`, `IN_TRANSIT`, `DELIVERED`, `CANCELLED`, `REFUNDED`) and valid transition rules via `isValidTransition`. This is the authoritative state machine for the platform.
+
+### Payment Gateway (Interface)
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/service/PaymentGateway.java`
+- **Responsibility:** Interface abstracting Stripe payment operations (create intent, refund) to allow test mocking. All payment code must go through this interface, not directly to Stripe.
+
+### Stripe Payment Gateway
+- **Path:** `order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java`
+- **Responsibility:** Live Stripe SDK implementation for creating payment intents with manual capture and issuing refunds. Uses `STRIPE_API_KEY` from environment.
+
+### Inventory Service
+- **Path:** `inventory-service/main.py`
+- **Responsibility:** FastAPI application handling restaurant listings, menu item queries, and stock reservation with Redis distributed locks. All DB operations are async (asyncpg driver).
+
+### Inventory Models
+- **Path:** `inventory-service/models.py`
+- **Responsibility:** SQLAlchemy ORM models for `Restaurant` and `MenuItem` with

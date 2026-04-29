@@ -75,7 +75,7 @@
     ]
   },
   "dynamic": {
-    "last_scanned": "2026-04-02T22:45:08.208621+00:00",
+    "last_scanned": "2026-04-29T13:31:49.795455+00:00",
     "secondary_languages": [
       "Java",
       "Kotlin",
@@ -86,7 +86,7 @@
     "build_command": "docker-compose build",
     "install_command": "docker-compose up --build",
     "run_command": "docker-compose up",
-    "test_framework": "JUnit 5 (order-service), pytest (inventory-service), Go testing (driver-service), Jest (notification-service)",
+    "test_framework": "JUnit 5, pytest, Go testing, Jest",
     "test_directory": "order-service/src/test, inventory-service/tests, driver-service/cmd/driver, notification-service/src",
     "source_directories": [
       "api-gateway/src/main/kotlin",
@@ -104,127 +104,132 @@
       "notification-service": "notification-service",
       "frontend": "frontend"
     },
-    "architecture_summary": "The system follows a microservices architecture with an API Gateway (Kotlin/Spring Cloud Gateway) performing JWT authentication and routing to downstream services: Order Service (Java/Spring Boot + PostgreSQL + Stripe + RabbitMQ), Inventory Service (Python/FastAPI + PostgreSQL + Redis), Driver Service (Go + MongoDB), and Notification Service (Node.js/TypeScript consuming RabbitMQ events via Twilio/SendGrid). A React/Vite frontend communicates through the gateway. Services communicate asynchronously via RabbitMQ order lifecycle events.",
+    "architecture_summary": "The platform follows a microservices architecture with an API Gateway (Kotlin/Spring Cloud Gateway) that performs JWT authentication and routes requests to three backend services: Order Service (Java/Spring Boot with PostgreSQL and Stripe payments), Inventory Service (Python/FastAPI with PostgreSQL and Redis distributed locks), and Driver Service (Go with MongoDB). A Notification Service (Node.js/TypeScript) consumes RabbitMQ events to send SMS via Twilio and email via SendGrid. A React frontend (TypeScript/Vite/Tailwind) provides customer, restaurant, driver, and admin views.",
     "key_components": [
       {
         "name": "API Gateway",
         "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/GatewayApplication.kt",
-        "responsibility": "Routes requests to downstream services and enforces JWT authentication via a global filter"
+        "responsibility": "Routes all external HTTP requests to internal services and enforces JWT authentication via a global filter."
       },
       {
         "name": "JWT Auth Filter",
         "path": "api-gateway/src/main/kotlin/com/fooddelivery/gateway/JwtAuthFilter.kt",
-        "responsibility": "Validates JWT tokens and injects X-Customer-Id header for downstream services"
-      },
-      {
-        "name": "Order Service",
-        "path": "order-service/src/main/java/com/fooddelivery/order/OrderServiceApplication.java",
-        "responsibility": "Manages order CRUD, lifecycle state transitions, Stripe payment integration, and publishes events to RabbitMQ"
+        "responsibility": "Validates JWT tokens on incoming requests and forwards the verified customer ID as an X-Customer-Id header to downstream services."
       },
       {
         "name": "Order Controller",
         "path": "order-service/src/main/java/com/fooddelivery/order/controller/OrderController.java",
-        "responsibility": "REST API for creating, listing, updating status, and cancelling orders"
+        "responsibility": "REST API for creating, listing, retrieving, updating status, and cancelling orders."
       },
       {
-        "name": "Order Service Logic",
+        "name": "Order Service",
         "path": "order-service/src/main/java/com/fooddelivery/order/service/OrderService.java",
-        "responsibility": "Business logic for order creation with payment, status transitions with validation, cancellation, and event publishing"
+        "responsibility": "Business logic for order lifecycle management including payment intent creation, status transitions with validation, cancellation, refunds, and RabbitMQ event publishing."
       },
       {
         "name": "Order Model",
         "path": "order-service/src/main/java/com/fooddelivery/order/model/Order.java",
-        "responsibility": "JPA entity representing an order with items, status, and Stripe payment intent"
+        "responsibility": "JPA entity representing an order with line items, payment info, delivery address, and timestamps."
       },
       {
         "name": "OrderStatus",
         "path": "order-service/src/main/java/com/fooddelivery/order/model/OrderStatus.java",
-        "responsibility": "Defines valid order lifecycle states and validates state transitions"
+        "responsibility": "Enum defining order lifecycle states and valid transition rules."
+      },
+      {
+        "name": "Payment Gateway",
+        "path": "order-service/src/main/java/com/fooddelivery/order/service/PaymentGateway.java",
+        "responsibility": "Interface abstracting Stripe payment operations (create intent, refund) to allow test mocking."
       },
       {
         "name": "Stripe Payment Gateway",
         "path": "order-service/src/main/java/com/fooddelivery/order/service/StripePaymentGateway.java",
-        "responsibility": "Live Stripe SDK integration for PaymentIntent creation and refunds"
+        "responsibility": "Live Stripe SDK implementation for creating payment intents with manual capture and issuing refunds."
       },
       {
         "name": "Inventory Service",
         "path": "inventory-service/main.py",
-        "responsibility": "FastAPI app for restaurant/menu queries and stock reservation with Redis distributed locks"
+        "responsibility": "FastAPI application handling restaurant listings, menu item queries, and stock reservation with Redis distributed locks."
       },
       {
         "name": "Inventory Models",
         "path": "inventory-service/models.py",
-        "responsibility": "SQLAlchemy models for Restaurant and MenuItem with stock management semantics"
+        "responsibility": "SQLAlchemy ORM models for Restaurant and MenuItem with stock quantity tracking."
       },
       {
         "name": "Driver Service",
         "path": "driver-service/cmd/driver/main.go",
-        "responsibility": "Go HTTP service for driver CRUD, location tracking, and availability management backed by MongoDB"
+        "responsibility": "Go HTTP service for driver CRUD, location updates, and availability management backed by MongoDB."
       },
       {
         "name": "Notification Service",
         "path": "notification-service/src/index.ts",
-        "responsibility": "Consumes RabbitMQ order events and sends SMS (Twilio) and email (SendGrid) notifications with idempotency"
+        "responsibility": "Consumes order events from RabbitMQ and sends SMS (Twilio) and email (SendGrid) notifications with idempotency protection."
       },
       {
         "name": "Frontend App",
         "path": "frontend/src/App.tsx",
-        "responsibility": "React SPA with role-based views for customers, restaurants, drivers, and admins"
+        "responsibility": "React SPA with role-based views (customer, restaurant, driver, admin) for interacting with the platform via the API Gateway."
       },
       {
         "name": "Auth Context",
         "path": "frontend/src/contexts/AuthContext.tsx",
-        "responsibility": "React context for JWT token management and customer ID extraction"
+        "responsibility": "React context that manages JWT token storage in localStorage and extracts the customer ID from the token's sub claim."
       },
       {
         "name": "API Client",
         "path": "frontend/src/api/client.ts",
-        "responsibility": "Axios instance configured with base URL and automatic JWT token injection"
+        "responsibility": "Axios instance configured with the gateway base URL and automatic JWT Bearer token injection."
+      },
+      {
+        "name": "Frontend Types",
+        "path": "frontend/src/types/index.ts",
+        "responsibility": "TypeScript type definitions for Order, Restaurant, MenuItem, Driver, and related DTOs shared across frontend components."
       }
     ],
     "agent_safe_operations": [
-      "Adding new API endpoints to existing services",
-      "Adding new unit tests to any service",
-      "Modifying frontend views and components",
-      "Adding new frontend API client functions",
-      "Adding new TypeScript types in frontend/src/types/",
-      "Modifying inventory-service models or routes",
-      "Adding new Go handler methods in driver-service",
-      "Updating notification message templates",
-      "Adding new order status transition logic in OrderStatus.java",
-      "Adding or modifying Pydantic models in inventory-service",
-      "Running tests for individual services"
+      "Adding new REST endpoints to existing service controllers/handlers",
+      "Adding new unit tests to any service's test directory",
+      "Modifying frontend React components and views",
+      "Adding new frontend API client functions in frontend/src/api/",
+      "Adding new TypeScript types in frontend/src/types/index.ts",
+      "Updating inventory-service FastAPI route handlers in main.py",
+      "Adding new SQLAlchemy models in inventory-service/models.py",
+      "Adding new Go handler methods in driver-service/cmd/driver/main.go",
+      "Modifying notification message templates in notification-service/src/index.ts",
+      "Updating order status transition rules in OrderStatus.java",
+      "Adding new dependencies to requirements.txt, package.json, pom.xml, go.mod, or build.gradle.kts"
     ],
     "agent_forbidden_operations": [
-      "Modifying CI/CD workflow files",
-      "Changing .env.example secrets to real credentials",
-      "Modifying docker-compose.yml infrastructure services",
-      "Altering the openapi.yaml specification without coordinating all services",
-      "Changing JWT secret or authentication mechanisms",
-      "Modifying database migration strategies or dropping tables",
-      "Changing RabbitMQ exchange names or routing key patterns without updating all consumers",
-      "Modifying the agent-context.json or AGENTS.md files",
-      "Removing the PaymentGateway interface abstraction"
+      "Modifying JWT secret values or authentication bypass logic in JwtAuthFilter.kt",
+      "Changing Stripe API key handling or payment gateway security in StripePaymentGateway.java",
+      "Removing or weakening order status transition validation in OrderStatus.isValidTransition",
+      "Disabling Redis distributed locking in the inventory service stock reservation flow",
+      "Modifying the RabbitMQ exchange/queue naming conventions used across services",
+      "Changing database migration schemas without coordinating across services that share PostgreSQL",
+      "Removing idempotency checks in the notification service",
+      "Hardcoding secrets or credentials in source files",
+      "Changing the X-Customer-Id header contract between the gateway and downstream services"
     ],
     "potential_pitfalls": [
-      "Each service uses a different language, build system, and test framework \u2014 changes must be made with the correct toolchain for each service",
-      "The order-service uses Maven (pom.xml) while the api-gateway uses Gradle (build.gradle.kts) \u2014 do not confuse build commands",
-      "The inventory-service uses async SQLAlchemy with asyncpg \u2014 all database operations must be awaited and use AsyncSession",
-      "Redis distributed locks in inventory-service have a 10-second TTL \u2014 long-running operations could cause lock expiry and race conditions",
-      "The Notification Service idempotency is in-memory (Set) \u2014 it resets on restart, so duplicate messages are possible after service restarts",
-      "The Driver Service Go code uses a DriverStore interface \u2014 all new data operations must go through this interface, not directly to MongoDB",
-      "Frontend LoginView generates dev JWTs client-side with a hardcoded secret \u2014 this must never be used in production",
-      "The docker-compose.yml is truncated in the repo \u2014 the inventory-service and remaining services may have incomplete configuration",
-      "OrderStatus.isValidTransition enforces a strict state machine \u2014 adding new statuses requires updating all transition rules",
-      "The API Gateway forwards X-Customer-Id header \u2014 downstream services trust this header implicitly, so bypassing the gateway breaks auth",
-      "The frontend hardcodes baseURL to localhost:8080 \u2014 this will fail in non-local environments",
-      "The order-service publishes to 'order.events' RabbitMQ exchange \u2014 the notification-service must bind to the same exchange name and routing pattern"
+      "Each service uses a different language, framework, and build system \u2014 changes must use the correct idioms (Java/Spring, Python/FastAPI, Go stdlib, TypeScript/Node).",
+      "Order status transitions are strictly validated in OrderStatus.isValidTransition; adding new statuses requires updating the switch expression and all consuming services.",
+      "The inventory service uses Redis distributed locks for stock reservation \u2014 any stock-modifying code must acquire and release locks correctly or risk deadlocks/overselling.",
+      "The Order Service, Inventory Service, and Notification Service communicate via RabbitMQ with specific exchange/routing key conventions (order.events, order.*) \u2014 changes must be synchronized.",
+      "The API Gateway forwards X-Customer-Id header from JWT claims \u2014 downstream services trust this header implicitly, so any changes to the header name or JWT claim structure break auth across all services.",
+      "The order-service uses Lombok annotations (@Getter, @Setter, @Builder) \u2014 IDEs and build tools must have Lombok configured or compilation will fail.",
+      "Python inventory-service uses async SQLAlchemy (asyncpg driver) \u2014 all database operations must use async/await patterns, not synchronous SQLAlchemy APIs.",
+      "The Go driver-service uses a DriverStore interface for testability \u2014 new database operations must be added to both the interface and the mongoDriverStore implementation plus the mockStore in tests.",
+      "The frontend dev login view generates JWTs with a hardcoded dev secret that must match the gateway's JWT_SECRET in development \u2014 mismatched secrets cause silent 401 errors.",
+      "The notification service's in-memory idempotency Set resets on restart \u2014 duplicate notifications can occur after service restarts until this is replaced with Redis.",
+      "PostgreSQL is shared between order-service and inventory-service \u2014 schema changes in one service can affect the other if tables/columns overlap.",
+      "The frontend uses @tanstack/react-query with specific query keys \u2014 cache invalidation depends on matching these keys exactly when adding mutations."
     ],
     "conventions": {
       "naming": "camelCase",
       "structure": "monorepo"
     },
     "has_ci": true,
-    "has_openapi": true
+    "has_openapi": false
   }
 }
