@@ -7,12 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "cypress:run": "cypress run --browser chrome --headless",
-    "cypress:open": "cypress open"
-  },
-  "@badeball/cypress-cucumber-preprocessor": {
-    "stepDefinitions": "cypress/support/step_definitions/**/*.ts"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.28.0",
@@ -27,13 +22,10 @@
     "axios": "$axios"
   },
   "devDependencies": {
-    "@badeball/cypress-cucumber-preprocessor": "^24.0.1",
-    "@bahmutov/cypress-esbuild-preprocessor": "^2.2.8",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
-    "cypress": "^14.5.4",
     "esbuild": "^0.27.4",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.1",
