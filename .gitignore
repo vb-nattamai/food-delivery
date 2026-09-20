@@ -16,3 +16,7 @@ target/
 node_modules/
 *.jar
 .gradle/
+.DS_Store
+.idea/
+*.log
+node_modules/
